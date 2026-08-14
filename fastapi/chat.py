@@ -44,7 +44,7 @@ def get_text_chunks(raw_text):
 
 
 def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
     vector_store = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
     vector_store.save_local("faiss_index")
 
@@ -71,7 +71,7 @@ def get_conversation_chain_gemini():
 
 
 def handle_user_input(user_input, chat_history):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     docs = new_db.similarity_search(user_input)
