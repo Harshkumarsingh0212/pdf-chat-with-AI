@@ -13,7 +13,10 @@ from langchain_classic.chains.question_answering import load_qa_chain
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-FAISS_INDEX_DIR = BASE_DIR / "faiss_index"
+# Each visitor gets their own subdirectory, keyed by a client-generated
+# session ID, so concurrent users don't share or overwrite each other's
+# uploaded documents / vector index.
+FAISS_INDEX_BASE_DIR = BASE_DIR / "faiss_index"
 
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 # Pinned to a specific version rather than an auto-rolling "-latest" alias.
@@ -39,6 +42,10 @@ def _require_api_key():
         )
 
 
+def session_index_dir(session_id: str) -> Path:
+    return FAISS_INDEX_BASE_DIR / session_id
+
+
 def get_pdf_text(path):
     text = ""
     for pdf in sorted(Path(path).glob("*.pdf")):
@@ -56,7 +63,7 @@ def get_text_chunks(raw_text):
     return text_splitter.split_text(raw_text)
 
 
-def get_vector_store(text_chunks):
+def get_vector_store(text_chunks, session_id: str):
     if not text_chunks:
         raise NoExtractableTextError(
             "No readable text was found in the uploaded PDF(s). They may be "
@@ -65,16 +72,17 @@ def get_vector_store(text_chunks):
     _require_api_key()
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     vector_store = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    vector_store.save_local(str(FAISS_INDEX_DIR))
+    vector_store.save_local(str(session_index_dir(session_id)))
 
 
-def vector_store_exists():
-    return (FAISS_INDEX_DIR / "index.faiss").exists()
+def vector_store_exists(session_id: str) -> bool:
+    return (session_index_dir(session_id) / "index.faiss").exists()
 
 
-def reset_vector_store():
-    if FAISS_INDEX_DIR.exists():
-        shutil.rmtree(FAISS_INDEX_DIR)
+def reset_vector_store(session_id: str):
+    index_dir = session_index_dir(session_id)
+    if index_dir.exists():
+        shutil.rmtree(index_dir)
 
 
 def _format_chat_history(chat_history):
@@ -106,8 +114,8 @@ def get_conversation_chain_gemini():
     return load_qa_chain(model, chain_type="stuff", prompt=prompt)
 
 
-def handle_user_input(user_input, chat_history):
-    if not vector_store_exists():
+def handle_user_input(user_input, chat_history, session_id: str):
+    if not vector_store_exists(session_id):
         raise VectorStoreNotFoundError(
             "No PDF has been uploaded yet. Please upload a PDF before asking questions."
         )
@@ -115,7 +123,7 @@ def handle_user_input(user_input, chat_history):
 
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     vector_store = FAISS.load_local(
-        str(FAISS_INDEX_DIR), embeddings, allow_dangerous_deserialization=True
+        str(session_index_dir(session_id)), embeddings, allow_dangerous_deserialization=True
     )
     docs = vector_store.similarity_search(user_input)
 

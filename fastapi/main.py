@@ -1,7 +1,8 @@
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -21,8 +22,15 @@ load_dotenv()
 app = FastAPI(title="PDF Chat AI")
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Each visitor's uploads live in their own subdirectory, named after their
+# session ID, so concurrent users never see or overwrite each other's files.
+UPLOAD_BASE_DIR = BASE_DIR / "uploads"
+UPLOAD_BASE_DIR.mkdir(exist_ok=True)
+
+# Client-generated session IDs (a UUID from crypto.randomUUID()) are used
+# directly as filesystem directory names, so they're validated strictly
+# against this pattern to rule out path traversal (e.g. "../../etc").
+SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
 
 origins = ["*"]
 app.add_middleware(
@@ -44,18 +52,39 @@ class Item(BaseModel):
     question: str
 
 
+def get_session_id(x_session_id: str = Header(..., alias="X-Session-Id")) -> str:
+    """Dependency that validates and returns the caller's session ID.
+
+    Every data-touching endpoint depends on this so requests are always
+    scoped to one visitor's own uploads/index and never leak into or
+    collide with another visitor's session.
+    """
+    if not SESSION_ID_PATTERN.match(x_session_id):
+        raise HTTPException(status_code=400, detail="Missing or invalid X-Session-Id header.")
+    return x_session_id
+
+
+def session_upload_dir(session_id: str) -> Path:
+    upload_dir = UPLOAD_BASE_DIR / session_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
+
+
 @app.get("/")
 def read_root():
-    return {"status": "ok", "ready": vector_store_exists()}
+    return {"status": "ok"}
 
 
 @app.get("/status/")
-def get_status():
-    return {"ready": vector_store_exists()}
+def get_status(session_id: str = Depends(get_session_id)):
+    return {"ready": vector_store_exists(session_id)}
 
 
 @app.post("/uploadfile/")
-async def create_upload_file(file_uploads: list[UploadFile]):
+async def create_upload_file(
+    file_uploads: list[UploadFile],
+    session_id: str = Depends(get_session_id),
+):
     if not file_uploads:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
@@ -66,7 +95,8 @@ async def create_upload_file(file_uploads: list[UploadFile]):
                 detail=f"'{file_upload.filename}' is not a PDF file.",
             )
 
-    for f in UPLOAD_DIR.glob("*"):
+    upload_dir = session_upload_dir(session_id)
+    for f in upload_dir.glob("*"):
         if f.is_file():
             f.unlink()
 
@@ -74,14 +104,14 @@ async def create_upload_file(file_uploads: list[UploadFile]):
         data = await file_upload.read()
         if not data:
             raise HTTPException(status_code=400, detail=f"'{file_upload.filename}' is empty.")
-        save_to = UPLOAD_DIR / file_upload.filename
+        save_to = upload_dir / file_upload.filename
         with open(save_to, "wb") as f:
             f.write(data)
 
     try:
-        raw_text = get_pdf_text(UPLOAD_DIR)
+        raw_text = get_pdf_text(upload_dir)
         text_chunks = get_text_chunks(raw_text)
-        get_vector_store(text_chunks)
+        get_vector_store(text_chunks, session_id)
     except NoExtractableTextError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -91,12 +121,12 @@ async def create_upload_file(file_uploads: list[UploadFile]):
 
 
 @app.post("/question/")
-async def create_user_query(item: Item):
+async def create_user_query(item: Item, session_id: str = Depends(get_session_id)):
     if not item.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     try:
-        answer = handle_user_input(item.question, item.chat_history)
+        answer = handle_user_input(item.question, item.chat_history, session_id)
     except VectorStoreNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -109,9 +139,10 @@ async def create_user_query(item: Item):
 
 
 @app.delete("/reset/")
-def reset():
-    for f in UPLOAD_DIR.glob("*"):
+def reset(session_id: str = Depends(get_session_id)):
+    upload_dir = session_upload_dir(session_id)
+    for f in upload_dir.glob("*"):
         if f.is_file():
             f.unlink()
-    reset_vector_store()
+    reset_vector_store(session_id)
     return {"status": "reset"}

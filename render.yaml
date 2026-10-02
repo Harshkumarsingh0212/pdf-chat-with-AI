@@ -6,7 +6,9 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir fastapi
-    healthCheckPath: /status/
+    # NOTE: must stay "/" — "/status/" requires an X-Session-Id header for
+    # per-visitor session isolation, which Render's health checker won't send.
+    healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
