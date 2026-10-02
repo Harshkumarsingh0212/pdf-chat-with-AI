@@ -1,14 +1,10 @@
 {
-  "name": "chat with pdfs",
+  "name": "pdf-chat-ai",
   "version": "1.0.0",
-  "description": "",
-  "main": "react/pdf-qa/src/App.j",
+  "description": "Chat with your PDFs using FastAPI + Gemini RAG backend and a Vite/React frontend.",
+  "private": true,
   "scripts": {
-    "build": "cd fastapi && uvicorn main:app --host 0.0.0.0 --port 8000 && cd ../react/pdf-qa && npm install && npm run build",
-    "start": "cd react/pdf-qa && npm start",
-    "test": "echo \"Error: no test specified\" && exit 1"
-},
-  "dependencies": {
-    "axios": "^1.6.8"
+    "backend": "cd fastapi && uvicorn main:app --reload",
+    "frontend": "cd frontend && npm run dev"
   }
 }

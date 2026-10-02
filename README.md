@@ -9,33 +9,35 @@ The backend is built with **FastAPI** and handles PDF processing — documents a
 - Upload and query multiple PDFs at once
 - Context-aware follow-up questions (chat history is preserved and used)
 - Retrieval-augmented generation (RAG) using FAISS for relevant document lookup
+- Clear error messages for invalid files, empty PDFs, or asking before uploading
+- Modern, responsive chat UI with drag-and-drop upload, dark mode, and markdown-formatted answers
 
 ## Tech Stack
 
 - **Backend:** FastAPI, LangChain, FAISS, Google Generative AI (Gemini)
-- **Frontend:** React
-- **Language:** Python 3.6+, JavaScript
+- **Frontend:** React + Vite + Tailwind CSS (`frontend/`, recommended)
+- **Legacy frontend:** Create React App (`react/pdf-qa/`, kept for reference)
+- **Language:** Python 3.10+, JavaScript
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.6+
+- Python 3.10+
 - Node.js & npm
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Harshkumarsingh0212/pdf-chat-ai.git
-cd pdf-chat-ai
-```
-
-### 2. Backend setup
+### 1. Backend setup
 
 Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Add your Google Gemini API key — create `fastapi/.env` (copy `fastapi/.env.example`):
+
+```
+GOOGLE_API_KEY=your_api_key_here
 ```
 
 Start the FastAPI server:
@@ -45,27 +47,35 @@ cd fastapi
 uvicorn main:app --reload
 ```
 
-The backend will be available at `http://127.0.0.1:8000/`.
+The backend runs at `http://127.0.0.1:8000/`.
 
-### 3. Frontend setup
+### 2. Frontend setup (recommended)
 
 ```bash
-cd react/pdf-qa
+cd frontend
 npm install
-npm run build
+npm run dev
 ```
 
-The frontend will be available at `http://127.0.0.1:3000/`.
+The app runs at `http://localhost:5173/` and talks to the backend at `http://localhost:8000` by default. To point it elsewhere, copy `frontend/.env.example` to `frontend/.env` and set `VITE_API_URL`.
 
 ## API Endpoints
 
+### `GET /status/`
+
+Returns `{"ready": true|false}` indicating whether a document has been indexed yet.
+
 ### `POST /uploadfile/`
 
-Uploads one or more PDF files. Each file is preprocessed and stored in the vector store for retrieval. Returns a JSON response with the list of uploaded filenames.
+Uploads one or more PDF files. Each file is validated, chunked, and stored in the vector store for retrieval. Replaces any previously uploaded documents. Returns the list of uploaded filenames.
 
 ### `POST /question/`
 
-Submits a user question. The question, along with relevant document chunks and chat history, is passed to the LLM. Returns a JSON response with the updated chat history, including the model's answer.
+Submits a user question along with the existing chat history. The question, relevant document chunks, and chat history are passed to the LLM. Returns the updated chat history (newest entry first) with the model's answer.
+
+### `DELETE /reset/`
+
+Clears uploaded files and the vector store, starting a fresh session.
 
 ## Environment Variables
 
@@ -74,6 +84,25 @@ You'll need a Google Gemini API key to run this project. Create a `.env` file in
 ```
 GOOGLE_API_KEY=your_api_key_here
 ```
+
+> **Tip:** avoid pinning the model to a `-latest` alias (e.g. `gemini-flash-latest`). Google can silently roll that alias onto a new preview model with a much smaller free-tier quota, which will break the app with `429 RESOURCE_EXHAUSTED` errors. `fastapi/chat.py` pins `CHAT_MODEL` to a specific version for this reason — if you change it, pick a concrete version name from `genai.list_models()`, not an alias.
+
+## Deploying to Render
+
+This repo includes a [`render.yaml`](./render.yaml) Blueprint that deploys both services:
+
+1. Push this repo to GitHub (already done if you're reading this on GitHub).
+2. In the [Render dashboard](https://dashboard.render.com/), click **New +** → **Blueprint**, and select this repo. Render will read `render.yaml` and create two services:
+   - `pdf-chat-backend` — the FastAPI app (Python web service)
+   - `pdf-chat-frontend` — the built Vite app (static site)
+3. Render will prompt you for the env vars marked `sync: false`:
+   - On **pdf-chat-backend**: set `GOOGLE_API_KEY` to your real Gemini API key.
+   - On **pdf-chat-frontend**: set `VITE_API_URL` to the backend's live URL once it's deployed (e.g. `https://pdf-chat-backend.onrender.com`). Vite bakes this in at *build* time, so if you change it later you need to trigger a new frontend deploy.
+4. Deploy. The backend usually finishes first — grab its URL from the Render dashboard, set it as `VITE_API_URL` on the frontend service, then deploy the frontend.
+
+### Known limitation: ephemeral storage
+
+Render's free/standard web services use an ephemeral filesystem. Uploaded PDFs and the FAISS index live in `fastapi/uploads/` and `fastapi/faiss_index/`, which persist only while the instance stays running — **they're wiped on every redeploy or restart**, and won't be shared across multiple instances if you scale up. For a personal/demo deployment this is fine (just re-upload after a redeploy). For production use with persistent documents, either attach a [Render Disk](https://render.com/docs/disks) to the backend service, or swap FAISS for a hosted vector store.
 
 ## License
 

@@ -1,6 +1,10 @@
 .env
 node_modules
-package-lock.json
 venv
 __pycache__
 faiss_index
+fastapi/uploads/*
+!fastapi/uploads/.gitkeep
+dist
+build
+*.log
