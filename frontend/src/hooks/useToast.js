@@ -10,9 +10,9 @@ export default function useToast() {
   }, [])
 
   const push = useCallback(
-    (message, timeout = 5000) => {
+    (message, timeout = 5000, type = 'error') => {
       const id = nextId++
-      setToasts((prev) => [...prev, { id, message }])
+      setToasts((prev) => [...prev, { id, message, type }])
       if (timeout) {
         setTimeout(() => dismiss(id), timeout)
       }
@@ -20,5 +20,10 @@ export default function useToast() {
     [dismiss],
   )
 
-  return { toasts, push, dismiss }
+  const success = useCallback(
+    (message, timeout = 3000) => push(message, timeout, 'success'),
+    [push],
+  )
+
+  return { toasts, push, success, dismiss }
 }

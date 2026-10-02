@@ -7,6 +7,7 @@ import TypingIndicator from './components/TypingIndicator'
 import EmptyState from './components/EmptyState'
 import Toast from './components/Toast'
 import useToast from './hooks/useToast'
+import { FileTextIcon, MenuIcon } from './components/Icons'
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(
@@ -19,10 +20,11 @@ export default function App() {
   const [userInput, setUserInput] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState(null)
   const [isAsking, setIsAsking] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const fileInputRef = useRef(null)
   const scrollRef = useRef(null)
-  const { toasts, push: pushToast, dismiss: dismissToast } = useToast()
+  const { toasts, push: pushToast, success: pushSuccess, dismiss: dismissToast } = useToast()
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -56,7 +58,8 @@ export default function App() {
       setFiles(res.data.filenames || [])
       setIsReady(true)
       setChats([])
-      pushToast(`Loaded ${res.data.filenames.length} document(s). Ask away!`, 3000)
+      setSidebarOpen(false)
+      pushSuccess(`Loaded ${res.data.filenames.length} document(s). Ask away!`)
     } catch (error) {
       pushToast(errorMessage(error))
     } finally {
@@ -74,7 +77,8 @@ export default function App() {
     setFiles([])
     setIsReady(false)
     setChats([])
-    pushToast('Started a new chat.', 2500)
+    setSidebarOpen(false)
+    pushSuccess('Started a new chat.')
   }
 
   const handleAsk = async () => {
@@ -101,9 +105,10 @@ export default function App() {
   }
 
   const orderedChats = [...chats].reverse()
+  const showEmptyState = !isReady && !pendingQuestion && orderedChats.length === 0
 
   return (
-    <div className="flex h-screen w-full flex-col bg-slate-50 dark:bg-slate-950 md:flex-row">
+    <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950">
       <Sidebar
         files={files}
         isReady={isReady}
@@ -113,48 +118,71 @@ export default function App() {
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((d) => !d)}
         fileInputRef={fileInputRef}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex flex-1 flex-col overflow-hidden">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          {!isReady && !pendingQuestion && orderedChats.length === 0 ? (
-            <EmptyState onBrowseClick={() => fileInputRef.current?.click()} />
-          ) : (
-            <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
-              {orderedChats.map((chat, i) => (
-                <MessageBubble key={i} question={chat.question} answer={chat.answer} />
-              ))}
-              {pendingQuestion && (
-                <div className="flex flex-col gap-3">
-                  <div className="flex justify-end">
-                    <div className="max-w-[75%] rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-2.5 text-sm text-white shadow-sm">
-                      {pendingQuestion}
-                    </div>
-                  </div>
-                  <TypingIndicator />
-                </div>
-              )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar */}
+        <div className="flex items-center gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur dark:border-slate-800/80 dark:bg-slate-900/90 md:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label="Open menu"
+          >
+            <MenuIcon width={19} height={19} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white">
+              <FileTextIcon width={14} height={14} />
             </div>
-          )}
-        </div>
-
-        <div className="border-t border-slate-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 sm:px-6">
-          <div className="mx-auto max-w-3xl">
-            <ChatInput
-              value={userInput}
-              onChange={setUserInput}
-              onSubmit={handleAsk}
-              disabled={!isReady || isAsking}
-              placeholder={
-                isReady ? 'Ask a question about your document…' : 'Upload a PDF to start chatting'
-              }
-            />
-            <p className="mt-2 text-center text-xs text-slate-400">
-              Answers are generated from your uploaded PDF content and may be incomplete or inaccurate.
-            </p>
+            <span className="font-display text-sm font-bold text-slate-800 dark:text-slate-50">
+              PDF Chat AI
+            </span>
           </div>
         </div>
-      </main>
+
+        <main className="relative flex flex-1 flex-col overflow-hidden">
+          <div ref={scrollRef} className={`flex-1 overflow-y-auto ${showEmptyState ? 'mesh-bg' : ''}`}>
+            {showEmptyState ? (
+              <EmptyState onBrowseClick={() => fileInputRef.current?.click()} />
+            ) : (
+              <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
+                {orderedChats.map((chat, i) => (
+                  <MessageBubble key={i} question={chat.question} answer={chat.answer} />
+                ))}
+                {pendingQuestion && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex justify-end">
+                      <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-brand-gradient px-4 py-2.5 text-sm text-white shadow-glow sm:max-w-[75%]">
+                        {pendingQuestion}
+                      </div>
+                    </div>
+                    <TypingIndicator />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80 sm:px-6">
+            <div className="mx-auto max-w-3xl">
+              <ChatInput
+                value={userInput}
+                onChange={setUserInput}
+                onSubmit={handleAsk}
+                disabled={!isReady || isAsking}
+                placeholder={
+                  isReady ? 'Ask a question about your document…' : 'Upload a PDF to start chatting'
+                }
+              />
+              <p className="mt-2 text-center text-xs text-slate-400">
+                Answers are generated from your uploaded PDF content and may be incomplete or inaccurate.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
